@@ -25,3 +25,4 @@
 
 - `休息提醒.ps1`：提醒器与桌面小组件
 - `启动休息提醒.vbs`：静默启动脚本
+- `iphone-rest-reminder`：iPhone SwiftUI 版本，可通过 GitHub 云端构建

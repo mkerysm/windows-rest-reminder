@@ -1,0 +1,42 @@
+name: Build iPhone App
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "iphone-rest-reminder/**"
+      - ".github/workflows/build-iphone-app.yml"
+
+jobs:
+  build:
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build app without signing
+        run: |
+          xcodebuild \
+            -project iphone-rest-reminder/iPhoneRestReminder.xcodeproj \
+            -scheme iPhoneRestReminder \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
+
+      - name: Package IPA
+        run: |
+          mkdir -p Payload
+          cp -R build/Build/Products/Release-iphoneos/iPhoneRestReminder.app Payload/
+          zip -r iPhoneRestReminder-unsigned.ipa Payload
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: iPhoneRestReminder-unsigned
+          path: iPhoneRestReminder-unsigned.ipa
+          retention-days: 30
