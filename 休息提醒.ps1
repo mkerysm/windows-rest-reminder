@@ -191,7 +191,7 @@ function Show-StatusWidget {
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         Title="$($uiText.WidgetTitle)"
         Width="330"
-        Height="205"
+        SizeToContent="Height"
         WindowStartupLocation="Manual"
         WindowStyle="None"
         ResizeMode="NoResize"
@@ -210,19 +210,18 @@ function Show-StatusWidget {
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
-            <DockPanel LastChildFill="True">
+            <StackPanel Orientation="Horizontal">
                 <Ellipse Name="StatusDot" Width="10" Height="10" Fill="#10B981" Margin="0,0,9,0"/>
-                <TextBlock Text="$($uiText.WidgetTitle)" FontFamily="Microsoft YaHei UI"
-                           FontSize="18" FontWeight="Bold" Foreground="#172033"/>
                 <TextBlock Name="StatusText" Text="$($uiText.Running)" FontFamily="Microsoft YaHei UI"
-                           FontSize="13" Foreground="#10B981" HorizontalAlignment="Right"/>
-            </DockPanel>
-            <Grid Grid.Row="1" Margin="0,20,0,8">
+                           FontSize="13" Foreground="#10B981"/>
+            </StackPanel>
+            <Grid Grid.Row="1" Margin="0,14,0,8">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-                <TextBlock Text="$($uiText.EyeNext)" FontFamily="Microsoft YaHei UI" FontSize="14" Foreground="#526078"/>
+                <TextBlock Text="$($uiText.EyeNext)" FontFamily="Microsoft YaHei UI"
+                           FontSize="16" FontWeight="SemiBold" Foreground="#526078"/>
                 <TextBlock Name="EyeTime" Grid.Column="1" Text="20:00" FontFamily="Consolas"
                            FontSize="22" FontWeight="Bold" Foreground="#3B82F6"/>
             </Grid>
@@ -231,13 +230,14 @@ function Show-StatusWidget {
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-                <TextBlock Text="$($uiText.BodyNext)" FontFamily="Microsoft YaHei UI" FontSize="14" Foreground="#526078"/>
+                <TextBlock Text="$($uiText.BodyNext)" FontFamily="Microsoft YaHei UI"
+                           FontSize="16" FontWeight="SemiBold" Foreground="#526078"/>
                 <TextBlock Name="BodyTime" Grid.Column="1" Text="45:00" FontFamily="Consolas"
                            FontSize="22" FontWeight="Bold" Foreground="#10B981"/>
             </Grid>
             <CheckBox Name="TopmostCheckBox" Grid.Row="3" Content="$($uiText.WindowTopmost)"
                       FontFamily="Microsoft YaHei UI" FontSize="13" Foreground="#526078"
-                      HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                      Margin="0,4,0,0" HorizontalAlignment="Right" VerticalAlignment="Center"/>
         </Grid>
     </Border>
 </Window>
@@ -251,7 +251,7 @@ function Show-StatusWidget {
 
     $workArea = [System.Windows.SystemParameters]::WorkArea
     $widget.Left = $workArea.Right - $widget.Width - 18
-    $widget.Top = $workArea.Bottom - $widget.Height - 18
+    $widget.Top = $workArea.Top + 18
 
     $formatRemaining = {
         param([TimeSpan]$remaining)
