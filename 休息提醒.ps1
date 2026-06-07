@@ -8,6 +8,33 @@ Add-Type -AssemblyName PresentationCore
 Add-Type -AssemblyName WindowsBase
 Add-Type -AssemblyName System.Windows.Forms
 
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+
+public static class UserInput {
+    [StructLayout(LayoutKind.Sequential)]
+    private struct LASTINPUTINFO {
+        public uint cbSize;
+        public uint dwTime;
+    }
+
+    [DllImport("user32.dll")]
+    private static extern bool GetLastInputInfo(ref LASTINPUTINFO inputInfo);
+
+    public static uint GetLastInputTickCount() {
+        LASTINPUTINFO inputInfo = new LASTINPUTINFO();
+        inputInfo.cbSize = (uint)Marshal.SizeOf(inputInfo);
+        return GetLastInputInfo(ref inputInfo) ? inputInfo.dwTime : 0;
+    }
+
+    public static uint GetIdleMilliseconds() {
+        uint lastInput = GetLastInputTickCount();
+        return unchecked((uint)Environment.TickCount - lastInput);
+    }
+}
+"@
+
 function ConvertFrom-CodePoints {
     param([int[]]$CodePoints)
     return -join ($CodePoints | ForEach-Object { [char]$_ })
@@ -35,12 +62,47 @@ $global:RestReminderState = @{
     ActiveWindow = $null
     CountdownTimer = $null
     IsSessionInactive = $false
+    IsWaitingForActivity = $false
+    LastInputTickCount = [UserInput]::GetLastInputTickCount()
+    PendingRestType = $null
+    FrozenBodyRemaining = [TimeSpan]::FromMinutes(45)
+    IsUserIdle = $false
+    IdleResetApplied = $false
+    LastActivityCheck = Get-Date
 }
 
 function Reset-ReminderTimers {
     $now = Get-Date
     $global:RestReminderState.NextEyeReminder = $now.AddMinutes(20)
     $global:RestReminderState.NextBodyReminder = $now.AddMinutes(45)
+}
+
+function Reset-IdleTracking {
+    $global:RestReminderState.IsUserIdle = $false
+    $global:RestReminderState.IdleResetApplied = $false
+    $global:RestReminderState.LastActivityCheck = Get-Date
+}
+
+function Wait-ForUserActivity {
+    param(
+        [Parameter(Mandatory)]
+        [ValidateSet("Eye", "Body", "Both")]
+        [string]$RestType
+    )
+
+    $global:RestReminderState.IsWaitingForActivity = $true
+    $global:RestReminderState.LastInputTickCount = [UserInput]::GetLastInputTickCount()
+    $global:RestReminderState.PendingRestType = $RestType
+
+    if ($RestType -eq "Eye") {
+        $remaining = $global:RestReminderState.NextBodyReminder - (Get-Date)
+        $global:RestReminderState.FrozenBodyRemaining = if ($remaining -gt [TimeSpan]::Zero) {
+            $remaining
+        }
+        else {
+            [TimeSpan]::Zero
+        }
+    }
 }
 
 function Show-RestReminder {
@@ -174,6 +236,7 @@ function Show-RestReminder {
         if ($global:RestReminderState.CountdownTimer -eq $windowTimer) {
             $global:RestReminderState.CountdownTimer = $null
         }
+        Wait-ForUserActivity -RestType $Type
     }.GetNewClosure())
 
     $window.Add_ContentRendered({
@@ -264,6 +327,17 @@ function Show-StatusWidget {
     $widgetTimer = New-Object Windows.Threading.DispatcherTimer
     $widgetTimer.Interval = [TimeSpan]::FromSeconds(1)
     $widgetTimer.Add_Tick({
+        if ($global:RestReminderState.IsWaitingForActivity) {
+            $eyeTime.Text = "20:00"
+            if ($global:RestReminderState.PendingRestType -eq "Eye") {
+                $bodyTime.Text = & $formatRemaining $global:RestReminderState.FrozenBodyRemaining
+            }
+            else {
+                $bodyTime.Text = "45:00"
+            }
+            return
+        }
+
         $now = Get-Date
         $eyeTime.Text = & $formatRemaining ($global:RestReminderState.NextEyeReminder - $now)
         $bodyTime.Text = & $formatRemaining ($global:RestReminderState.NextBodyReminder - $now)
@@ -300,11 +374,17 @@ $app.ShutdownMode = [Windows.ShutdownMode]::OnExplicitShutdown
     switch ($eventArgs.Reason) {
         ([Microsoft.Win32.SessionSwitchReason]::SessionLock) {
             $global:RestReminderState.IsSessionInactive = $true
+            $global:RestReminderState.IsWaitingForActivity = $false
+            $global:RestReminderState.PendingRestType = $null
             Reset-ReminderTimers
+            Reset-IdleTracking
         }
         ([Microsoft.Win32.SessionSwitchReason]::SessionUnlock) {
             $global:RestReminderState.IsSessionInactive = $false
+            $global:RestReminderState.IsWaitingForActivity = $false
+            $global:RestReminderState.PendingRestType = $null
             Reset-ReminderTimers
+            Reset-IdleTracking
         }
     }
 })
@@ -315,11 +395,17 @@ $app.ShutdownMode = [Windows.ShutdownMode]::OnExplicitShutdown
     switch ($eventArgs.Mode) {
         ([Microsoft.Win32.PowerModes]::Suspend) {
             $global:RestReminderState.IsSessionInactive = $true
+            $global:RestReminderState.IsWaitingForActivity = $false
+            $global:RestReminderState.PendingRestType = $null
             Reset-ReminderTimers
+            Reset-IdleTracking
         }
         ([Microsoft.Win32.PowerModes]::Resume) {
             $global:RestReminderState.IsSessionInactive = $false
+            $global:RestReminderState.IsWaitingForActivity = $false
+            $global:RestReminderState.PendingRestType = $null
             Reset-ReminderTimers
+            Reset-IdleTracking
         }
     }
 })
@@ -327,11 +413,64 @@ $app.ShutdownMode = [Windows.ShutdownMode]::OnExplicitShutdown
 $checkTimer = New-Object Windows.Threading.DispatcherTimer
 $checkTimer.Interval = [TimeSpan]::FromSeconds(1)
 $checkTimer.Add_Tick({
+    $now = Get-Date
+    $elapsedSinceCheck = $now - $global:RestReminderState.LastActivityCheck
+    $global:RestReminderState.LastActivityCheck = $now
+
     if ($global:RestReminderState.IsSessionInactive) {
         return
     }
 
-    $now = Get-Date
+    if ($global:RestReminderState.ActiveWindow) {
+        return
+    }
+
+    if ($global:RestReminderState.IsWaitingForActivity) {
+        $lastInputTickCount = [UserInput]::GetLastInputTickCount()
+        if ($lastInputTickCount -eq $global:RestReminderState.LastInputTickCount) {
+            if ([UserInput]::GetIdleMilliseconds() -ge 300000) {
+                $global:RestReminderState.PendingRestType = "Both"
+            }
+            return
+        }
+
+        $global:RestReminderState.IsWaitingForActivity = $false
+        $global:RestReminderState.LastInputTickCount = $lastInputTickCount
+        if ($global:RestReminderState.PendingRestType -eq "Eye") {
+            $global:RestReminderState.NextEyeReminder = $now.AddMinutes(20)
+            $global:RestReminderState.NextBodyReminder = $now.Add($global:RestReminderState.FrozenBodyRemaining)
+        }
+        else {
+            Reset-ReminderTimers
+        }
+        $global:RestReminderState.PendingRestType = $null
+        Reset-IdleTracking
+        return
+    }
+
+    $idleMilliseconds = [UserInput]::GetIdleMilliseconds()
+    if ($idleMilliseconds -ge 5000) {
+        if (-not $global:RestReminderState.IsUserIdle) {
+            $idleDuration = [TimeSpan]::FromMilliseconds($idleMilliseconds)
+            $global:RestReminderState.NextEyeReminder = $global:RestReminderState.NextEyeReminder.Add($idleDuration)
+            $global:RestReminderState.NextBodyReminder = $global:RestReminderState.NextBodyReminder.Add($idleDuration)
+            $global:RestReminderState.IsUserIdle = $true
+        }
+        else {
+            $global:RestReminderState.NextEyeReminder = $global:RestReminderState.NextEyeReminder.Add($elapsedSinceCheck)
+            $global:RestReminderState.NextBodyReminder = $global:RestReminderState.NextBodyReminder.Add($elapsedSinceCheck)
+        }
+
+        if ($idleMilliseconds -ge 300000 -and -not $global:RestReminderState.IdleResetApplied) {
+            Reset-ReminderTimers
+            $global:RestReminderState.IdleResetApplied = $true
+        }
+        return
+    }
+
+    $global:RestReminderState.IsUserIdle = $false
+    $global:RestReminderState.IdleResetApplied = $false
+
     $eyeDue = $now -ge $global:RestReminderState.NextEyeReminder
     $bodyDue = $now -ge $global:RestReminderState.NextBodyReminder
 
