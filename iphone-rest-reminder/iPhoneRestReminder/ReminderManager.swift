@@ -5,13 +5,15 @@ import UserNotifications
 @MainActor
 final class ReminderManager: ObservableObject {
     static let eyeInterval: TimeInterval = 20 * 60
-    static let bodyInterval: TimeInterval = 45 * 60
+    static let bodyInterval: TimeInterval = 60 * 60
+    static let longRestInterval: TimeInterval = 5 * 60
 
     @Published private(set) var eyeRemaining = eyeInterval
     @Published private(set) var bodyRemaining = bodyInterval
     @Published private(set) var notificationsEnabled = false
 
     private let startDateKey = "reminderStartDate"
+    private let backgroundedAtKey = "reminderBackgroundedAt"
     private var startDate: Date
     private var timer: AnyCancellable?
 
@@ -49,11 +51,29 @@ final class ReminderManager: ObservableObject {
         resetStartDate()
         refresh()
 
-        if notificationsEnabled {
-            Task {
-                await scheduleNotifications()
-            }
+        rescheduleNotificationsIfEnabled()
+    }
+
+    func sceneDidEnterBackground() {
+        UserDefaults.standard.set(Date(), forKey: backgroundedAtKey)
+    }
+
+    func sceneDidBecomeActive() {
+        let defaults = UserDefaults.standard
+        guard let backgroundedAt = defaults.object(forKey: backgroundedAtKey) as? Date else {
+            refresh()
+            return
         }
+
+        defaults.removeObject(forKey: backgroundedAtKey)
+        let timeAway = Date().timeIntervalSince(backgroundedAt)
+
+        if timeAway >= Self.longRestInterval {
+            resetStartDate()
+            rescheduleNotificationsIfEnabled()
+        }
+
+        refresh()
     }
 
     func refresh() {
@@ -129,5 +149,17 @@ final class ReminderManager: ObservableObject {
     private func resetStartDate() {
         startDate = Date()
         UserDefaults.standard.set(startDate, forKey: startDateKey)
+    }
+
+    private func rescheduleNotificationsIfEnabled() {
+        Task {
+            let settings = await UNUserNotificationCenter.current().notificationSettings()
+            notificationsEnabled = settings.authorizationStatus == .authorized
+            guard notificationsEnabled else {
+                return
+            }
+
+            await scheduleNotifications()
+        }
     }
 }

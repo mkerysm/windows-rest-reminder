@@ -58,14 +58,14 @@ $uiText = @{
 
 $global:RestReminderState = @{
     NextEyeReminder = (Get-Date).AddMinutes(20)
-    NextBodyReminder = (Get-Date).AddMinutes(45)
+    NextBodyReminder = (Get-Date).AddMinutes(60)
     ActiveWindow = $null
     CountdownTimer = $null
     IsSessionInactive = $false
     IsWaitingForActivity = $false
     LastInputTickCount = [UserInput]::GetLastInputTickCount()
     PendingRestType = $null
-    FrozenBodyRemaining = [TimeSpan]::FromMinutes(45)
+    FrozenBodyRemaining = [TimeSpan]::FromMinutes(60)
     IsUserIdle = $false
     IdleResetApplied = $false
     LastActivityCheck = Get-Date
@@ -74,7 +74,7 @@ $global:RestReminderState = @{
 function Reset-ReminderTimers {
     $now = Get-Date
     $global:RestReminderState.NextEyeReminder = $now.AddMinutes(20)
-    $global:RestReminderState.NextBodyReminder = $now.AddMinutes(45)
+    $global:RestReminderState.NextBodyReminder = $now.AddMinutes(60)
 }
 
 function Reset-IdleTracking {
@@ -295,7 +295,7 @@ function Show-StatusWidget {
                 </Grid.ColumnDefinitions>
                 <TextBlock Text="$($uiText.BodyNext)" FontFamily="Microsoft YaHei UI"
                            FontSize="16" FontWeight="SemiBold" Foreground="#526078"/>
-                <TextBlock Name="BodyTime" Grid.Column="1" Text="45:00" FontFamily="Consolas"
+                <TextBlock Name="BodyTime" Grid.Column="1" Text="60:00" FontFamily="Consolas"
                            FontSize="22" FontWeight="Bold" Foreground="#10B981"/>
             </Grid>
             <CheckBox Name="TopmostCheckBox" Grid.Row="3" Content="$($uiText.WindowTopmost)"
@@ -333,7 +333,7 @@ function Show-StatusWidget {
                 $bodyTime.Text = & $formatRemaining $global:RestReminderState.FrozenBodyRemaining
             }
             else {
-                $bodyTime.Text = "45:00"
+                $bodyTime.Text = "60:00"
             }
             return
         }
@@ -478,7 +478,7 @@ $checkTimer.Add_Tick({
         $global:RestReminderState.NextEyeReminder = $global:RestReminderState.NextEyeReminder.AddMinutes(20)
     }
     while ($now -ge $global:RestReminderState.NextBodyReminder) {
-        $global:RestReminderState.NextBodyReminder = $global:RestReminderState.NextBodyReminder.AddMinutes(45)
+        $global:RestReminderState.NextBodyReminder = $global:RestReminderState.NextBodyReminder.AddMinutes(60)
     }
 
     if ($bodyDue -and $eyeDue) {

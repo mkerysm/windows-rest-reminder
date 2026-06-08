@@ -11,8 +11,15 @@ struct iPhoneRestReminderApp: App {
                 .environmentObject(reminderManager)
         }
         .onChange(of: scenePhase) { _, newPhase in
-            if newPhase == .active {
-                reminderManager.refresh()
+            switch newPhase {
+            case .active:
+                reminderManager.sceneDidBecomeActive()
+            case .background:
+                reminderManager.sceneDidEnterBackground()
+            case .inactive:
+                break
+            @unknown default:
+                break
             }
         }
     }

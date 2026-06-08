@@ -21,10 +21,11 @@ struct ContentView: View {
                         title: "距离身体休息",
                         time: reminderManager.formatted(reminderManager.bodyRemaining),
                         color: .green,
-                        detail: "每 45 分钟休息 5 分钟"
+                        detail: "每 60 分钟休息 5 分钟"
                     )
 
                     notificationCard
+                    inactivityCard
 
                     Button {
                         reminderManager.reset()
@@ -97,6 +98,25 @@ struct ContentView: View {
                 }
                 .buttonStyle(.borderedProminent)
             }
+        }
+        .padding()
+        .background(.background, in: RoundedRectangle(cornerRadius: 18))
+    }
+
+    private var inactivityCard: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "moon.zzz.fill")
+                .foregroundStyle(.indigo)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text("长时间休息后自动重置")
+                    .font(.headline)
+                Text("离开 App 满 5 分钟后再次打开，会重新开始护眼和身体休息计时。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
         }
         .padding()
         .background(.background, in: RoundedRectangle(cornerRadius: 18))
