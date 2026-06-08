@@ -109,9 +109,9 @@ struct ContentView: View {
                 .foregroundStyle(.indigo)
 
             VStack(alignment: .leading, spacing: 3) {
-                Text("长时间休息后自动重置")
+                Text("离开时自动暂停")
                     .font(.headline)
-                Text("离开 App 满 5 分钟后再次打开，会重新开始护眼和身体休息计时。")
+                Text("离开 App 超过 2 分钟后暂停计时；满 5 分钟后重新开始整个周期。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
