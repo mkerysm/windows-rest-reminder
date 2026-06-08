@@ -451,9 +451,10 @@ $checkTimer.Add_Tick({
     $idleMilliseconds = [UserInput]::GetIdleMilliseconds()
     if ($idleMilliseconds -ge 5000) {
         if (-not $global:RestReminderState.IsUserIdle) {
-            $idleDuration = [TimeSpan]::FromMilliseconds($idleMilliseconds)
-            $global:RestReminderState.NextEyeReminder = $global:RestReminderState.NextEyeReminder.Add($idleDuration)
-            $global:RestReminderState.NextBodyReminder = $global:RestReminderState.NextBodyReminder.Add($idleDuration)
+            # Only pause time observed by this process. The OS idle duration may
+            # include minutes from before the reminder app was started.
+            $global:RestReminderState.NextEyeReminder = $global:RestReminderState.NextEyeReminder.Add($elapsedSinceCheck)
+            $global:RestReminderState.NextBodyReminder = $global:RestReminderState.NextBodyReminder.Add($elapsedSinceCheck)
             $global:RestReminderState.IsUserIdle = $true
         }
         else {
