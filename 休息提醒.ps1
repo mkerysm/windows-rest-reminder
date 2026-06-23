@@ -356,7 +356,7 @@ function Show-StatusWidget {
         Topmost="False"
         Background="Transparent"
         AllowsTransparency="True">
-    <Border CornerRadius="18" Background="#F7FFFFFF" BorderBrush="#D8E1F0" BorderThickness="1" Padding="20">
+    <Border CornerRadius="18" Background="#F7FFFFFF" BorderBrush="#D8E1F0" BorderThickness="1" Padding="16">
         <Border.Effect>
             <DropShadowEffect BlurRadius="18" ShadowDepth="3" Opacity="0.25"/>
         </Border.Effect>
@@ -368,11 +368,16 @@ function Show-StatusWidget {
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
-            <StackPanel Orientation="Horizontal">
-                <Ellipse Name="StatusDot" Width="10" Height="10" Fill="#10B981" Margin="0,0,9,0"/>
-                <TextBlock Name="StatusText" Text="$($uiText.Running)" FontFamily="Microsoft YaHei UI"
-                           FontSize="13" Foreground="#10B981"/>
-            </StackPanel>
+            <DockPanel LastChildFill="False">
+                <StackPanel Orientation="Horizontal" DockPanel.Dock="Left" VerticalAlignment="Center">
+                    <Ellipse Name="StatusDot" Width="10" Height="10" Fill="#10B981" Margin="0,0,9,0"/>
+                    <TextBlock Name="StatusText" Text="$($uiText.Running)" FontFamily="Microsoft YaHei UI"
+                               FontSize="13" Foreground="#10B981"/>
+                </StackPanel>
+                <Button Name="ToggleSettingsButton" Content="$($uiText.Settings)" Width="64" Height="26"
+                        FontFamily="Microsoft YaHei UI" FontSize="12" Background="#EEF2F7" BorderThickness="0"
+                        HorizontalAlignment="Right" DockPanel.Dock="Right"/>
+            </DockPanel>
             <Grid Grid.Row="1" Margin="0,14,0,8">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
@@ -383,7 +388,7 @@ function Show-StatusWidget {
                 <TextBlock Name="EyeTime" Grid.Column="1" Text="20:00" FontFamily="Consolas"
                            FontSize="22" FontWeight="Bold" Foreground="#3B82F6"/>
             </Grid>
-            <Grid Grid.Row="2" Margin="0,4,0,14">
+            <Grid Grid.Row="2" Margin="0,4,0,0">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
@@ -393,20 +398,13 @@ function Show-StatusWidget {
                 <TextBlock Name="BodyTime" Grid.Column="1" Text="60:00" FontFamily="Consolas"
                            FontSize="22" FontWeight="Bold" Foreground="#10B981"/>
             </Grid>
-            <DockPanel Grid.Row="3" Margin="0,4,0,0" LastChildFill="False">
-                <CheckBox Name="TopmostCheckBox" Content="$($uiText.WindowTopmost)"
-                          FontFamily="Microsoft YaHei UI" FontSize="13" Foreground="#526078"
-                          VerticalAlignment="Center" DockPanel.Dock="Left"/>
-                <Button Name="ToggleSettingsButton" Content="$($uiText.Settings)" Width="72" Height="30"
-                        FontFamily="Microsoft YaHei UI" FontSize="13" Background="#EEF2F7" BorderThickness="0"
-                        HorizontalAlignment="Right" DockPanel.Dock="Right"/>
-            </DockPanel>
-            <Grid Name="SettingsPanel" Grid.Row="4" Margin="0,12,0,0" Visibility="Collapsed">
+            <Grid Name="SettingsPanel" Grid.Row="3" Margin="0,12,0,0" Visibility="Collapsed">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="72"/>
                 </Grid.ColumnDefinitions>
                 <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
@@ -421,7 +419,9 @@ function Show-StatusWidget {
                 <TextBox Name="BodyIntervalTextBox" Grid.Row="2" Grid.Column="1" Height="25" FontFamily="Consolas" FontSize="13" TextAlignment="Center"/>
                 <TextBlock Grid.Row="3" Text="$($uiText.BodyDurationLabel)" FontFamily="Microsoft YaHei UI" FontSize="12" Foreground="#526078" Margin="0,0,8,6"/>
                 <TextBox Name="BodyDurationTextBox" Grid.Row="3" Grid.Column="1" Height="25" FontFamily="Consolas" FontSize="13" TextAlignment="Center"/>
-                <Button Name="SaveSettingsButton" Grid.Row="4" Grid.ColumnSpan="2" Content="$($uiText.SaveSettings)" Height="30"
+                <CheckBox Name="TopmostCheckBox" Grid.Row="4" Grid.ColumnSpan="2" Content="$($uiText.WindowTopmost)"
+                          FontFamily="Microsoft YaHei UI" FontSize="13" Foreground="#526078" Margin="0,2,0,8"/>
+                <Button Name="SaveSettingsButton" Grid.Row="5" Grid.ColumnSpan="2" Content="$($uiText.SaveSettings)" Height="30"
                         FontFamily="Microsoft YaHei UI" FontSize="13" Background="#EEF2F7" BorderThickness="0"/>
             </Grid>
         </Grid>
