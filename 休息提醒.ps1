@@ -1,4 +1,4 @@
-param(
+﻿param(
     [ValidateSet("Eye", "Body", "Both")]
     [string]$Test
 )
@@ -54,18 +54,111 @@ $uiText = @{
     EyeNext = ConvertFrom-CodePoints @(36317,31163,25252,30524,25552,37266)
     BodyNext = ConvertFrom-CodePoints @(36317,31163,36523,20307,20241,24687)
     WindowTopmost = ConvertFrom-CodePoints @(31383,21475,32622,39030)
+    EyeIntervalLabel = ConvertFrom-CodePoints @(25252,30524,38388,38548,40,109,105,110,41)
+    EyeDurationLabel = ConvertFrom-CodePoints @(25252,30524,26102,38271,40,115,101,99,41)
+    BodyIntervalLabel = ConvertFrom-CodePoints @(20241,24687,38388,38548,40,109,105,110,41)
+    BodyDurationLabel = ConvertFrom-CodePoints @(20241,24687,26102,38271,40,109,105,110,41)
+    SaveSettings = ConvertFrom-CodePoints @(20445,23384,35774,32622)
 }
 
+$settingsPath = Join-Path $PSScriptRoot "rest-reminder-settings.json"
+
+function Get-DefaultReminderSettings {
+    return [ordered]@{
+        EyeIntervalMinutes = 20
+        EyeDurationSeconds = 20
+        BodyIntervalMinutes = 60
+        BodyDurationMinutes = 5
+        IdlePauseMinutes = 1
+    }
+}
+
+function Normalize-ReminderSettings {
+    param($Settings)
+
+    $defaults = Get-DefaultReminderSettings
+    $normalized = Get-DefaultReminderSettings
+
+    foreach ($name in @("EyeIntervalMinutes", "EyeDurationSeconds", "BodyIntervalMinutes", "BodyDurationMinutes", "IdlePauseMinutes")) {
+        $hasValue = $false
+        $rawValue = $null
+
+        if ($Settings -is [System.Collections.IDictionary] -and $Settings.Contains($name)) {
+            $hasValue = $true
+            $rawValue = $Settings[$name]
+        }
+        elseif ($Settings -and $Settings.PSObject.Properties.Name -contains $name) {
+            $hasValue = $true
+            $rawValue = $Settings.$name
+        }
+
+        if ($hasValue) {
+            $value = [double]$rawValue
+            if ($value -gt 0) {
+                $normalized[$name] = $value
+            }
+        }
+    }
+
+    if (($normalized.BodyDurationMinutes * 60) -gt ($normalized.BodyIntervalMinutes * 60)) {
+        $normalized.BodyDurationMinutes = $defaults.BodyDurationMinutes
+    }
+    if ($normalized.EyeDurationSeconds -gt ($normalized.EyeIntervalMinutes * 60)) {
+        $normalized.EyeDurationSeconds = $defaults.EyeDurationSeconds
+    }
+
+    return $normalized
+}
+
+function Load-ReminderSettings {
+    if (Test-Path -LiteralPath $settingsPath) {
+        try {
+            return Normalize-ReminderSettings (Get-Content -LiteralPath $settingsPath -Raw | ConvertFrom-Json)
+        }
+        catch {
+            return Get-DefaultReminderSettings
+        }
+    }
+
+    return Get-DefaultReminderSettings
+}
+
+function Save-ReminderSettings {
+    $global:RestReminderSettings | ConvertTo-Json | Set-Content -LiteralPath $settingsPath -Encoding UTF8
+}
+
+function Get-EyeIntervalTimeSpan {
+    return [TimeSpan]::FromMinutes([double]$global:RestReminderSettings.EyeIntervalMinutes)
+}
+
+function Get-EyeDurationSeconds {
+    return [int]([double]$global:RestReminderSettings.EyeDurationSeconds)
+}
+
+function Get-BodyIntervalTimeSpan {
+    return [TimeSpan]::FromMinutes([double]$global:RestReminderSettings.BodyIntervalMinutes)
+}
+
+function Get-BodyDurationSeconds {
+    return [int]([double]$global:RestReminderSettings.BodyDurationMinutes * 60)
+}
+
+function Get-IdlePauseMilliseconds {
+    return [int]([double]$global:RestReminderSettings.IdlePauseMinutes * 60000)
+}
+
+$global:RestReminderSettings = Load-ReminderSettings
+
 $global:RestReminderState = @{
-    NextEyeReminder = (Get-Date).AddMinutes(20)
-    NextBodyReminder = (Get-Date).AddMinutes(60)
+    NextEyeReminder = (Get-Date).Add((Get-EyeIntervalTimeSpan))
+    NextBodyReminder = (Get-Date).Add((Get-BodyIntervalTimeSpan))
     ActiveWindow = $null
     CountdownTimer = $null
     IsSessionInactive = $false
     IsWaitingForActivity = $false
     LastInputTickCount = [UserInput]::GetLastInputTickCount()
     PendingRestType = $null
-    FrozenBodyRemaining = [TimeSpan]::FromMinutes(60)
+    FrozenBodyRemaining = Get-BodyIntervalTimeSpan
     IsUserIdle = $false
     IdleResetApplied = $false
     LastActivityCheck = Get-Date
@@ -73,8 +166,8 @@ $global:RestReminderState = @{
 
 function Reset-ReminderTimers {
     $now = Get-Date
-    $global:RestReminderState.NextEyeReminder = $now.AddMinutes(20)
-    $global:RestReminderState.NextBodyReminder = $now.AddMinutes(60)
+    $global:RestReminderState.NextEyeReminder = $now.Add((Get-EyeIntervalTimeSpan))
+    $global:RestReminderState.NextBodyReminder = $now.Add((Get-BodyIntervalTimeSpan))
 }
 
 function Reset-IdleTracking {
@@ -120,19 +213,19 @@ function Show-RestReminder {
         "Eye" {
             $title = $uiText.EyeTitle
             $message = $uiText.EyeMessage
-            $durationSeconds = 20
+            $durationSeconds = Get-EyeDurationSeconds
             $accent = "#3B82F6"
         }
         "Body" {
             $title = $uiText.BodyTitle
             $message = $uiText.BodyMessage
-            $durationSeconds = 300
+            $durationSeconds = Get-BodyDurationSeconds
             $accent = "#10B981"
         }
         "Both" {
             $title = $uiText.BothTitle
             $message = $uiText.BothMessage
-            $durationSeconds = 300
+            $durationSeconds = Get-BodyDurationSeconds
             $accent = "#8B5CF6"
         }
     }
@@ -272,6 +365,7 @@ function Show-StatusWidget {
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
             <StackPanel Orientation="Horizontal">
                 <Ellipse Name="StatusDot" Width="10" Height="10" Fill="#10B981" Margin="0,0,9,0"/>
@@ -298,7 +392,30 @@ function Show-StatusWidget {
                 <TextBlock Name="BodyTime" Grid.Column="1" Text="60:00" FontFamily="Consolas"
                            FontSize="22" FontWeight="Bold" Foreground="#10B981"/>
             </Grid>
-            <CheckBox Name="TopmostCheckBox" Grid.Row="3" Content="$($uiText.WindowTopmost)"
+            <Grid Grid.Row="3" Margin="0,2,0,10">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="72"/>
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                <TextBlock Text="$($uiText.EyeIntervalLabel)" FontFamily="Microsoft YaHei UI" FontSize="12" Foreground="#526078" Margin="0,0,8,4"/>
+                <TextBox Name="EyeIntervalTextBox" Grid.Column="1" Height="25" FontFamily="Consolas" FontSize="13" TextAlignment="Center"/>
+                <TextBlock Grid.Row="1" Text="$($uiText.EyeDurationLabel)" FontFamily="Microsoft YaHei UI" FontSize="12" Foreground="#526078" Margin="0,0,8,4"/>
+                <TextBox Name="EyeDurationTextBox" Grid.Row="1" Grid.Column="1" Height="25" FontFamily="Consolas" FontSize="13" TextAlignment="Center"/>
+                <TextBlock Grid.Row="2" Text="$($uiText.BodyIntervalLabel)" FontFamily="Microsoft YaHei UI" FontSize="12" Foreground="#526078" Margin="0,0,8,4"/>
+                <TextBox Name="BodyIntervalTextBox" Grid.Row="2" Grid.Column="1" Height="25" FontFamily="Consolas" FontSize="13" TextAlignment="Center"/>
+                <TextBlock Grid.Row="3" Text="$($uiText.BodyDurationLabel)" FontFamily="Microsoft YaHei UI" FontSize="12" Foreground="#526078" Margin="0,0,8,6"/>
+                <TextBox Name="BodyDurationTextBox" Grid.Row="3" Grid.Column="1" Height="25" FontFamily="Consolas" FontSize="13" TextAlignment="Center"/>
+                <Button Name="SaveSettingsButton" Grid.Row="4" Grid.ColumnSpan="2" Content="$($uiText.SaveSettings)" Height="30"
+                        FontFamily="Microsoft YaHei UI" FontSize="13" Background="#EEF2F7" BorderThickness="0"/>
+            </Grid>
+            <CheckBox Name="TopmostCheckBox" Grid.Row="4" Content="$($uiText.WindowTopmost)"
                       FontFamily="Microsoft YaHei UI" FontSize="13" Foreground="#526078"
                       Margin="0,4,0,0" HorizontalAlignment="Right" VerticalAlignment="Center"/>
         </Grid>
@@ -311,6 +428,11 @@ function Show-StatusWidget {
     $eyeTime = $widget.FindName("EyeTime")
     $bodyTime = $widget.FindName("BodyTime")
     $topmostCheckBox = $widget.FindName("TopmostCheckBox")
+    $eyeIntervalTextBox = $widget.FindName("EyeIntervalTextBox")
+    $eyeDurationTextBox = $widget.FindName("EyeDurationTextBox")
+    $bodyIntervalTextBox = $widget.FindName("BodyIntervalTextBox")
+    $bodyDurationTextBox = $widget.FindName("BodyDurationTextBox")
+    $saveSettingsButton = $widget.FindName("SaveSettingsButton")
 
     $workArea = [System.Windows.SystemParameters]::WorkArea
     $widget.Left = $workArea.Right - $widget.Width - 18
@@ -328,12 +450,12 @@ function Show-StatusWidget {
     $widgetTimer.Interval = [TimeSpan]::FromSeconds(1)
     $widgetTimer.Add_Tick({
         if ($global:RestReminderState.IsWaitingForActivity) {
-            $eyeTime.Text = "20:00"
+            $eyeTime.Text = & $formatRemaining (Get-EyeIntervalTimeSpan)
             if ($global:RestReminderState.PendingRestType -eq "Eye") {
                 $bodyTime.Text = & $formatRemaining $global:RestReminderState.FrozenBodyRemaining
             }
             else {
-                $bodyTime.Text = "60:00"
+                $bodyTime.Text = & $formatRemaining (Get-BodyIntervalTimeSpan)
             }
             return
         }
@@ -341,6 +463,37 @@ function Show-StatusWidget {
         $now = Get-Date
         $eyeTime.Text = & $formatRemaining ($global:RestReminderState.NextEyeReminder - $now)
         $bodyTime.Text = & $formatRemaining ($global:RestReminderState.NextBodyReminder - $now)
+    }.GetNewClosure())
+
+    $refreshSettingsText = {
+        $eyeIntervalTextBox.Text = [string]$global:RestReminderSettings.EyeIntervalMinutes
+        $eyeDurationTextBox.Text = [string]$global:RestReminderSettings.EyeDurationSeconds
+        $bodyIntervalTextBox.Text = [string]$global:RestReminderSettings.BodyIntervalMinutes
+        $bodyDurationTextBox.Text = [string]$global:RestReminderSettings.BodyDurationMinutes
+    }.GetNewClosure()
+
+    $saveSettingsButton.Add_Click({
+        try {
+            $eyeInterval = [double]$eyeIntervalTextBox.Text
+            $eyeDuration = [double]$eyeDurationTextBox.Text
+            $bodyInterval = [double]$bodyIntervalTextBox.Text
+            $bodyDuration = [double]$bodyDurationTextBox.Text
+
+            if ($eyeInterval -gt 0 -and $eyeDuration -gt 0 -and $bodyInterval -gt 0 -and $bodyDuration -gt 0) {
+                $global:RestReminderSettings.EyeIntervalMinutes = $eyeInterval
+                $global:RestReminderSettings.EyeDurationSeconds = $eyeDuration
+                $global:RestReminderSettings.BodyIntervalMinutes = $bodyInterval
+                $global:RestReminderSettings.BodyDurationMinutes = $bodyDuration
+                $global:RestReminderSettings = Normalize-ReminderSettings $global:RestReminderSettings
+                Save-ReminderSettings
+                Reset-ReminderTimers
+                $global:RestReminderState.FrozenBodyRemaining = Get-BodyIntervalTimeSpan
+                & $refreshSettingsText
+            }
+        }
+        catch {
+            & $refreshSettingsText
+        }
     }.GetNewClosure())
 
     $topmostCheckBox.Add_Checked({
@@ -356,6 +509,7 @@ function Show-StatusWidget {
         $app.Shutdown()
     }.GetNewClosure())
     $widget.Add_ContentRendered({
+        & $refreshSettingsText
         $now = Get-Date
         $eyeTime.Text = & $formatRemaining ($global:RestReminderState.NextEyeReminder - $now)
         $bodyTime.Text = & $formatRemaining ($global:RestReminderState.NextBodyReminder - $now)
@@ -437,7 +591,7 @@ $checkTimer.Add_Tick({
         $global:RestReminderState.IsWaitingForActivity = $false
         $global:RestReminderState.LastInputTickCount = $lastInputTickCount
         if ($global:RestReminderState.PendingRestType -eq "Eye") {
-            $global:RestReminderState.NextEyeReminder = $now.AddMinutes(20)
+            $global:RestReminderState.NextEyeReminder = $now.Add((Get-EyeIntervalTimeSpan))
             $global:RestReminderState.NextBodyReminder = $now.Add($global:RestReminderState.FrozenBodyRemaining)
         }
         else {
@@ -449,7 +603,7 @@ $checkTimer.Add_Tick({
     }
 
     $idleMilliseconds = [UserInput]::GetIdleMilliseconds()
-    if ($idleMilliseconds -ge 120000) {
+    if ($idleMilliseconds -ge (Get-IdlePauseMilliseconds)) {
         if (-not $global:RestReminderState.IsUserIdle) {
             # Only pause time observed by this process. The OS idle duration may
             # include minutes from before the reminder app was started.
@@ -476,10 +630,10 @@ $checkTimer.Add_Tick({
     $bodyDue = $now -ge $global:RestReminderState.NextBodyReminder
 
     while ($now -ge $global:RestReminderState.NextEyeReminder) {
-        $global:RestReminderState.NextEyeReminder = $global:RestReminderState.NextEyeReminder.AddMinutes(20)
+        $global:RestReminderState.NextEyeReminder = $global:RestReminderState.NextEyeReminder.Add((Get-EyeIntervalTimeSpan))
     }
     while ($now -ge $global:RestReminderState.NextBodyReminder) {
-        $global:RestReminderState.NextBodyReminder = $global:RestReminderState.NextBodyReminder.AddMinutes(60)
+        $global:RestReminderState.NextBodyReminder = $global:RestReminderState.NextBodyReminder.Add((Get-BodyIntervalTimeSpan))
     }
 
     if ($bodyDue -and $eyeDue) {
