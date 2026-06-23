@@ -59,6 +59,7 @@ $uiText = @{
     BodyIntervalLabel = ConvertFrom-CodePoints @(20241,24687,38388,38548,40,109,105,110,41)
     BodyDurationLabel = ConvertFrom-CodePoints @(20241,24687,26102,38271,40,109,105,110,41)
     SaveSettings = ConvertFrom-CodePoints @(20445,23384,35774,32622)
+    Settings = ConvertFrom-CodePoints @(35774,32622)
 }
 
 $settingsPath = Join-Path $PSScriptRoot "rest-reminder-settings.json"
@@ -392,7 +393,15 @@ function Show-StatusWidget {
                 <TextBlock Name="BodyTime" Grid.Column="1" Text="60:00" FontFamily="Consolas"
                            FontSize="22" FontWeight="Bold" Foreground="#10B981"/>
             </Grid>
-            <Grid Grid.Row="3" Margin="0,2,0,10">
+            <DockPanel Grid.Row="3" Margin="0,4,0,0" LastChildFill="False">
+                <CheckBox Name="TopmostCheckBox" Content="$($uiText.WindowTopmost)"
+                          FontFamily="Microsoft YaHei UI" FontSize="13" Foreground="#526078"
+                          VerticalAlignment="Center" DockPanel.Dock="Left"/>
+                <Button Name="ToggleSettingsButton" Content="$($uiText.Settings)" Width="72" Height="30"
+                        FontFamily="Microsoft YaHei UI" FontSize="13" Background="#EEF2F7" BorderThickness="0"
+                        HorizontalAlignment="Right" DockPanel.Dock="Right"/>
+            </DockPanel>
+            <Grid Name="SettingsPanel" Grid.Row="4" Margin="0,12,0,0" Visibility="Collapsed">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="72"/>
@@ -415,9 +424,6 @@ function Show-StatusWidget {
                 <Button Name="SaveSettingsButton" Grid.Row="4" Grid.ColumnSpan="2" Content="$($uiText.SaveSettings)" Height="30"
                         FontFamily="Microsoft YaHei UI" FontSize="13" Background="#EEF2F7" BorderThickness="0"/>
             </Grid>
-            <CheckBox Name="TopmostCheckBox" Grid.Row="4" Content="$($uiText.WindowTopmost)"
-                      FontFamily="Microsoft YaHei UI" FontSize="13" Foreground="#526078"
-                      Margin="0,4,0,0" HorizontalAlignment="Right" VerticalAlignment="Center"/>
         </Grid>
     </Border>
 </Window>
@@ -428,6 +434,8 @@ function Show-StatusWidget {
     $eyeTime = $widget.FindName("EyeTime")
     $bodyTime = $widget.FindName("BodyTime")
     $topmostCheckBox = $widget.FindName("TopmostCheckBox")
+    $toggleSettingsButton = $widget.FindName("ToggleSettingsButton")
+    $settingsPanel = $widget.FindName("SettingsPanel")
     $eyeIntervalTextBox = $widget.FindName("EyeIntervalTextBox")
     $eyeDurationTextBox = $widget.FindName("EyeDurationTextBox")
     $bodyIntervalTextBox = $widget.FindName("BodyIntervalTextBox")
@@ -493,6 +501,16 @@ function Show-StatusWidget {
         }
         catch {
             & $refreshSettingsText
+        }
+    }.GetNewClosure())
+
+    $toggleSettingsButton.Add_Click({
+        if ($settingsPanel.Visibility -eq [System.Windows.Visibility]::Visible) {
+            $settingsPanel.Visibility = [System.Windows.Visibility]::Collapsed
+        }
+        else {
+            & $refreshSettingsText
+            $settingsPanel.Visibility = [System.Windows.Visibility]::Visible
         }
     }.GetNewClosure())
 
