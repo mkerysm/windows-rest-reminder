@@ -51,6 +51,7 @@ $uiText = @{
     DoneButton = ConvertFrom-CodePoints @(25105,20241,24687,22909,20102)
     WidgetTitle = ConvertFrom-CodePoints @(25252,30524,19982,20241,24687)
     Running = ConvertFrom-CodePoints @(36816,34892,20013)
+    Paused = ConvertFrom-CodePoints @(26242,20572,20013)
     EyeNext = ConvertFrom-CodePoints @(36317,31163,25252,30524,25552,37266)
     BodyNext = ConvertFrom-CodePoints @(36317,31163,36523,20307,20241,24687)
     WindowTopmost = ConvertFrom-CodePoints @(31383,21475,32622,39030)
@@ -163,6 +164,7 @@ $global:RestReminderState = @{
     IsUserIdle = $false
     IdleResetApplied = $false
     LastActivityCheck = Get-Date
+    IsManuallyPaused = $false
 }
 
 function Reset-ReminderTimers {
@@ -369,11 +371,14 @@ function Show-StatusWidget {
                 <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
             <DockPanel LastChildFill="False">
-                <StackPanel Orientation="Horizontal" DockPanel.Dock="Left" VerticalAlignment="Center">
-                    <Ellipse Name="StatusDot" Width="10" Height="10" Fill="#10B981" Margin="0,0,9,0"/>
-                    <TextBlock Name="StatusText" Text="$($uiText.Running)" FontFamily="Microsoft YaHei UI"
-                               FontSize="13" Foreground="#10B981"/>
-                </StackPanel>
+                <Button Name="RunningToggleButton" DockPanel.Dock="Left" Background="Transparent" BorderThickness="0"
+                        Padding="0" Cursor="Hand" VerticalAlignment="Center">
+                    <StackPanel Orientation="Horizontal">
+                        <Ellipse Name="StatusDot" Width="10" Height="10" Fill="#10B981" Margin="0,0,9,0"/>
+                        <TextBlock Name="StatusText" Text="$($uiText.Running)" FontFamily="Microsoft YaHei UI"
+                                   FontSize="13" Foreground="#10B981"/>
+                    </StackPanel>
+                </Button>
                 <Button Name="ToggleSettingsButton" Content="$($uiText.Settings)" Width="64" Height="26"
                         FontFamily="Microsoft YaHei UI" FontSize="12" Background="#EEF2F7" BorderThickness="0"
                         HorizontalAlignment="Right" DockPanel.Dock="Right"/>
@@ -433,6 +438,9 @@ function Show-StatusWidget {
     $widget = [Windows.Markup.XamlReader]::Load($reader)
     $eyeTime = $widget.FindName("EyeTime")
     $bodyTime = $widget.FindName("BodyTime")
+    $runningToggleButton = $widget.FindName("RunningToggleButton")
+    $statusDot = $widget.FindName("StatusDot")
+    $statusText = $widget.FindName("StatusText")
     $topmostCheckBox = $widget.FindName("TopmostCheckBox")
     $toggleSettingsButton = $widget.FindName("ToggleSettingsButton")
     $settingsPanel = $widget.FindName("SettingsPanel")
@@ -471,6 +479,27 @@ function Show-StatusWidget {
         $now = Get-Date
         $eyeTime.Text = & $formatRemaining ($global:RestReminderState.NextEyeReminder - $now)
         $bodyTime.Text = & $formatRemaining ($global:RestReminderState.NextBodyReminder - $now)
+    }.GetNewClosure())
+
+    $brushConverter = New-Object Windows.Media.BrushConverter
+
+    $refreshRunningState = {
+        if ($global:RestReminderState.IsManuallyPaused) {
+            $statusDot.Fill = $brushConverter.ConvertFromString("#F59E0B")
+            $statusText.Text = $uiText.Paused
+            $statusText.Foreground = $brushConverter.ConvertFromString("#F59E0B")
+        }
+        else {
+            $statusDot.Fill = $brushConverter.ConvertFromString("#10B981")
+            $statusText.Text = $uiText.Running
+            $statusText.Foreground = $brushConverter.ConvertFromString("#10B981")
+        }
+    }.GetNewClosure()
+
+    $runningToggleButton.Add_Click({
+        $global:RestReminderState.IsManuallyPaused = -not $global:RestReminderState.IsManuallyPaused
+        Reset-IdleTracking
+        & $refreshRunningState
     }.GetNewClosure())
 
     $refreshSettingsText = {
@@ -528,6 +557,7 @@ function Show-StatusWidget {
     }.GetNewClosure())
     $widget.Add_ContentRendered({
         & $refreshSettingsText
+        & $refreshRunningState
         $now = Get-Date
         $eyeTime.Text = & $formatRemaining ($global:RestReminderState.NextEyeReminder - $now)
         $bodyTime.Text = & $formatRemaining ($global:RestReminderState.NextBodyReminder - $now)
@@ -594,6 +624,12 @@ $checkTimer.Add_Tick({
     }
 
     if ($global:RestReminderState.ActiveWindow) {
+        return
+    }
+
+    if ($global:RestReminderState.IsManuallyPaused) {
+        $global:RestReminderState.NextEyeReminder = $global:RestReminderState.NextEyeReminder.Add($elapsedSinceCheck)
+        $global:RestReminderState.NextBodyReminder = $global:RestReminderState.NextBodyReminder.Add($elapsedSinceCheck)
         return
     }
 
