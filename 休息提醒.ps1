@@ -662,16 +662,14 @@ $checkTimer.Add_Tick({
             # Only pause time observed by this process. The OS idle duration may
             # include minutes from before the reminder app was started.
             $global:RestReminderState.NextEyeReminder = $global:RestReminderState.NextEyeReminder.Add($elapsedSinceCheck)
-            $global:RestReminderState.NextBodyReminder = $global:RestReminderState.NextBodyReminder.Add($elapsedSinceCheck)
             $global:RestReminderState.IsUserIdle = $true
         }
         else {
             $global:RestReminderState.NextEyeReminder = $global:RestReminderState.NextEyeReminder.Add($elapsedSinceCheck)
-            $global:RestReminderState.NextBodyReminder = $global:RestReminderState.NextBodyReminder.Add($elapsedSinceCheck)
         }
 
         if ($idleMilliseconds -ge 300000 -and -not $global:RestReminderState.IdleResetApplied) {
-            Reset-ReminderTimers
+            $global:RestReminderState.NextEyeReminder = $now.Add((Get-EyeIntervalTimeSpan))
             $global:RestReminderState.IdleResetApplied = $true
         }
         return
