@@ -1,6 +1,9 @@
 param(
     [ValidateSet("Eye", "Body", "Both")]
-    [string]$Test
+    [string]$Test,
+    [switch]$EnableStartup,
+    [switch]$DisableStartup,
+    [switch]$ShowStartupStatus
 )
 
 Add-Type -AssemblyName PresentationFramework
@@ -55,6 +58,7 @@ $uiText = @{
     EyeNext = ConvertFrom-CodePoints @(36317,31163,25252,30524,25552,37266)
     BodyNext = ConvertFrom-CodePoints @(36317,31163,36523,20307,20241,24687)
     WindowTopmost = ConvertFrom-CodePoints @(31383,21475,32622,39030)
+    StartupAutoRun = ConvertFrom-CodePoints @(24320,26426,33258,21551)
     LockReset = ConvertFrom-CodePoints @(38145,23631,37325,32622)
     EyeIntervalLabel = ConvertFrom-CodePoints @(25252,30524,38388,38548,40,109,105,110,41)
     EyeDurationLabel = ConvertFrom-CodePoints @(25252,30524,26102,38271,40,115,101,99,41)
@@ -65,6 +69,168 @@ $uiText = @{
 }
 
 $settingsPath = Join-Path $PSScriptRoot "rest-reminder-settings.json"
+$startupShortcutName = "Windows Rest Reminder.lnk"
+$launcherFileName = ConvertFrom-CodePoints @(21551,21160,20241,24687,25552,37266,46,118,98,115)
+$mainScriptFileName = ConvertFrom-CodePoints @(20241,24687,25552,37266,46,112,115,49)
+$launcherPath = Join-Path $PSScriptRoot $launcherFileName
+$mainScriptPath = Join-Path $PSScriptRoot $mainScriptFileName
+
+function Get-StartupFolderPath {
+    return [Environment]::GetFolderPath([Environment+SpecialFolder]::Startup)
+}
+
+function Get-StartupShortcutPath {
+    return Join-Path (Get-StartupFolderPath) $startupShortcutName
+}
+
+function Get-NormalizedPath {
+    param([string]$Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return ""
+    }
+
+    $expanded = [Environment]::ExpandEnvironmentVariables($Path.Trim('"'))
+    try {
+        $trimChars = [char[]]@([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
+        return [System.IO.Path]::GetFullPath($expanded).TrimEnd($trimChars)
+    }
+    catch {
+        return $expanded.TrimEnd([char[]]@("\", "/"))
+    }
+}
+
+function Test-TextContainsPath {
+    param(
+        [string]$Text,
+        [string]$Path
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Text) -or [string]::IsNullOrWhiteSpace($Path)) {
+        return $false
+    }
+
+    $expandedText = [Environment]::ExpandEnvironmentVariables($Text)
+    $normalizedPath = Get-NormalizedPath $Path
+    return $expandedText.IndexOf($normalizedPath, [System.StringComparison]::OrdinalIgnoreCase) -ge 0
+}
+
+function Test-ShortcutTargetsRestReminder {
+    param($Shortcut)
+
+    $targetPath = Get-NormalizedPath $Shortcut.TargetPath
+    $launcher = Get-NormalizedPath $script:launcherPath
+    $mainScript = Get-NormalizedPath $script:mainScriptPath
+    $arguments = [string]$Shortcut.Arguments
+
+    if ($targetPath.Equals($launcher, [System.StringComparison]::OrdinalIgnoreCase)) {
+        return $true
+    }
+
+    if (Test-TextContainsPath -Text $arguments -Path $launcher) {
+        return $true
+    }
+
+    if ($targetPath.Equals($mainScript, [System.StringComparison]::OrdinalIgnoreCase)) {
+        return $true
+    }
+
+    if (Test-TextContainsPath -Text $arguments -Path $mainScript) {
+        return $true
+    }
+
+    return $false
+}
+
+function Get-RestReminderStartupShortcuts {
+    $startupFolder = Get-StartupFolderPath
+    if ([string]::IsNullOrWhiteSpace($startupFolder) -or -not (Test-Path -LiteralPath $startupFolder)) {
+        return @()
+    }
+
+    $shell = New-Object -ComObject WScript.Shell
+    $matches = @()
+    Get-ChildItem -LiteralPath $startupFolder -Filter "*.lnk" -File -ErrorAction SilentlyContinue | ForEach-Object {
+        try {
+            $shortcut = $shell.CreateShortcut($_.FullName)
+            if (Test-ShortcutTargetsRestReminder $shortcut) {
+                $matches += $_.FullName
+            }
+        }
+        catch {
+        }
+    }
+
+    return $matches
+}
+
+function Test-StartupEnabled {
+    return @((Get-RestReminderStartupShortcuts)).Count -gt 0
+}
+
+function Set-StartupEnabled {
+    param([Parameter(Mandatory)][bool]$Enabled)
+
+    if ($Enabled) {
+        if (-not (Test-Path -LiteralPath $script:launcherPath)) {
+            throw "Startup launcher not found: $script:launcherPath"
+        }
+
+        $startupFolder = Get-StartupFolderPath
+        if ([string]::IsNullOrWhiteSpace($startupFolder)) {
+            throw "Windows Startup folder was not found."
+        }
+
+        if (-not (Test-Path -LiteralPath $startupFolder)) {
+            New-Item -Path $startupFolder -ItemType Directory -Force | Out-Null
+        }
+
+        $shortcutPath = Get-StartupShortcutPath
+        @((Get-RestReminderStartupShortcuts)) | Where-Object { $_ -ne $shortcutPath } | ForEach-Object {
+            Remove-Item -LiteralPath $_ -Force -ErrorAction Stop
+        }
+
+        $shell = New-Object -ComObject WScript.Shell
+        $shortcut = $shell.CreateShortcut($shortcutPath)
+        $shortcut.TargetPath = Join-Path $env:SystemRoot "System32\wscript.exe"
+        $shortcut.Arguments = ('"{0}"' -f $script:launcherPath)
+        $shortcut.WorkingDirectory = $PSScriptRoot
+        $shortcut.WindowStyle = 7
+        $shortcut.Description = "Start Windows Rest Reminder silently"
+        $shortcut.Save()
+    }
+    else {
+        @((Get-RestReminderStartupShortcuts)) | ForEach-Object {
+            Remove-Item -LiteralPath $_ -Force -ErrorAction Stop
+        }
+    }
+
+    return Test-StartupEnabled
+}
+
+if ($EnableStartup -or $DisableStartup -or $ShowStartupStatus) {
+    if ($EnableStartup -and $DisableStartup) {
+        throw "Use only one startup action."
+    }
+
+    if ($EnableStartup) {
+        $startupEnabled = Set-StartupEnabled -Enabled $true
+    }
+    elseif ($DisableStartup) {
+        $startupEnabled = Set-StartupEnabled -Enabled $false
+    }
+    else {
+        $startupEnabled = Test-StartupEnabled
+    }
+
+    if ($startupEnabled) {
+        Write-Output "Startup: enabled"
+    }
+    else {
+        Write-Output "Startup: disabled"
+    }
+    return
+}
 
 function Get-DefaultReminderSettings {
     return [ordered]@{
@@ -74,6 +240,7 @@ function Get-DefaultReminderSettings {
         BodyDurationMinutes = 5
         IdlePauseMinutes = 1
         ResetBodyAfterLockMinutes = 5
+        WidgetTopmost = $false
     }
 }
 
@@ -105,6 +272,23 @@ function Normalize-ReminderSettings {
                 $normalized[$name] = $value
             }
         }
+    }
+
+    $topmostName = "WidgetTopmost"
+    $hasTopmostValue = $false
+    $rawTopmostValue = $null
+
+    if ($Settings -is [System.Collections.IDictionary] -and $Settings.Contains($topmostName)) {
+        $hasTopmostValue = $true
+        $rawTopmostValue = $Settings[$topmostName]
+    }
+    elseif ($Settings -and $Settings.PSObject.Properties.Name -contains $topmostName) {
+        $hasTopmostValue = $true
+        $rawTopmostValue = $Settings.$topmostName
+    }
+
+    if ($hasTopmostValue) {
+        $normalized[$topmostName] = [System.Convert]::ToBoolean($rawTopmostValue)
     }
 
     if (($normalized.BodyDurationMinutes * 60) -gt ($normalized.BodyIntervalMinutes * 60)) {
@@ -440,6 +624,7 @@ function Show-StatusWidget {
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
                 <TextBlock Text="$($uiText.EyeIntervalLabel)" FontFamily="Microsoft YaHei UI" FontSize="12" Foreground="#526078" Margin="0,0,8,4"/>
                 <TextBox Name="EyeIntervalTextBox" Grid.Column="1" Height="25" FontFamily="Consolas" FontSize="13" TextAlignment="Center"/>
@@ -452,8 +637,10 @@ function Show-StatusWidget {
                 <CheckBox Name="TopmostCheckBox" Grid.Row="4" Grid.ColumnSpan="2" Content="$($uiText.WindowTopmost)"
                           FontFamily="Microsoft YaHei UI" FontSize="13" Foreground="#526078" Margin="0,2,0,4"/>
                 <CheckBox Name="LockResetCheckBox" Grid.Row="5" Grid.ColumnSpan="2" Content="$($uiText.LockReset)"
-                          FontFamily="Microsoft YaHei UI" FontSize="13" Foreground="#526078" Margin="0,0,0,8" IsChecked="True"/>
-                <Button Name="SaveSettingsButton" Grid.Row="6" Grid.ColumnSpan="2" Content="$($uiText.SaveSettings)" Height="30"
+                          FontFamily="Microsoft YaHei UI" FontSize="13" Foreground="#526078" Margin="0,0,0,4" IsChecked="True"/>
+                <CheckBox Name="StartupCheckBox" Grid.Row="6" Grid.ColumnSpan="2" Content="$($uiText.StartupAutoRun)"
+                          FontFamily="Microsoft YaHei UI" FontSize="13" Foreground="#526078" Margin="0,0,0,8"/>
+                <Button Name="SaveSettingsButton" Grid.Row="7" Grid.ColumnSpan="2" Content="$($uiText.SaveSettings)" Height="30"
                         FontFamily="Microsoft YaHei UI" FontSize="13" Background="#EEF2F7" BorderThickness="0"/>
             </Grid>
         </Grid>
@@ -470,6 +657,7 @@ function Show-StatusWidget {
     $statusText = $widget.FindName("StatusText")
     $topmostCheckBox = $widget.FindName("TopmostCheckBox")
     $lockResetCheckBox = $widget.FindName("LockResetCheckBox")
+    $startupCheckBox = $widget.FindName("StartupCheckBox")
     $toggleSettingsButton = $widget.FindName("ToggleSettingsButton")
     $settingsPanel = $widget.FindName("SettingsPanel")
     $eyeIntervalTextBox = $widget.FindName("EyeIntervalTextBox")
@@ -510,6 +698,17 @@ function Show-StatusWidget {
     }.GetNewClosure())
 
     $brushConverter = New-Object Windows.Media.BrushConverter
+    $uiState = @{
+        IsRefreshingSettings = $false
+    }
+    $getStartupEnabled = {
+        try {
+            return Test-StartupEnabled
+        }
+        catch {
+            return $false
+        }
+    }.GetNewClosure()
 
     $refreshRunningState = {
         if ($global:RestReminderState.IsManuallyPaused) {
@@ -531,11 +730,20 @@ function Show-StatusWidget {
     }.GetNewClosure())
 
     $refreshSettingsText = {
-        $eyeIntervalTextBox.Text = [string]$global:RestReminderSettings.EyeIntervalMinutes
-        $eyeDurationTextBox.Text = [string]$global:RestReminderSettings.EyeDurationSeconds
-        $bodyIntervalTextBox.Text = [string]$global:RestReminderSettings.BodyIntervalMinutes
-        $bodyDurationTextBox.Text = [string]$global:RestReminderSettings.BodyDurationMinutes
-        $lockResetCheckBox.IsChecked = [double]$global:RestReminderSettings.ResetBodyAfterLockMinutes -gt 0
+        $uiState.IsRefreshingSettings = $true
+        try {
+            $eyeIntervalTextBox.Text = [string]$global:RestReminderSettings.EyeIntervalMinutes
+            $eyeDurationTextBox.Text = [string]$global:RestReminderSettings.EyeDurationSeconds
+            $bodyIntervalTextBox.Text = [string]$global:RestReminderSettings.BodyIntervalMinutes
+            $bodyDurationTextBox.Text = [string]$global:RestReminderSettings.BodyDurationMinutes
+            $lockResetCheckBox.IsChecked = [double]$global:RestReminderSettings.ResetBodyAfterLockMinutes -gt 0
+            $topmostCheckBox.IsChecked = [bool]$global:RestReminderSettings.WidgetTopmost
+            $widget.Topmost = [bool]$global:RestReminderSettings.WidgetTopmost
+            $startupCheckBox.IsChecked = & $getStartupEnabled
+        }
+        finally {
+            $uiState.IsRefreshingSettings = $false
+        }
     }.GetNewClosure()
 
     $saveSettingsButton.Add_Click({
@@ -575,9 +783,60 @@ function Show-StatusWidget {
 
     $topmostCheckBox.Add_Checked({
         $widget.Topmost = $true
+        if ($uiState.IsRefreshingSettings) {
+            return
+        }
+
+        $global:RestReminderSettings.WidgetTopmost = $true
+        $global:RestReminderSettings = Normalize-ReminderSettings $global:RestReminderSettings
+        Save-ReminderSettings
     }.GetNewClosure())
     $topmostCheckBox.Add_Unchecked({
         $widget.Topmost = $false
+        if ($uiState.IsRefreshingSettings) {
+            return
+        }
+
+        $global:RestReminderSettings.WidgetTopmost = $false
+        $global:RestReminderSettings = Normalize-ReminderSettings $global:RestReminderSettings
+        Save-ReminderSettings
+    }.GetNewClosure())
+
+    $startupCheckBox.Add_Checked({
+        if ($uiState.IsRefreshingSettings) {
+            return
+        }
+
+        try {
+            $startupEnabled = Set-StartupEnabled -Enabled $true
+        }
+        catch {
+            $startupEnabled = & $getStartupEnabled
+        }
+
+        if (-not $startupEnabled) {
+            $uiState.IsRefreshingSettings = $true
+            $startupCheckBox.IsChecked = $false
+            $uiState.IsRefreshingSettings = $false
+        }
+    }.GetNewClosure())
+    $startupCheckBox.Add_Unchecked({
+        if ($uiState.IsRefreshingSettings) {
+            return
+        }
+
+        try {
+            $startupEnabled = Set-StartupEnabled -Enabled $false
+        }
+        catch {
+            $startupEnabled = & $getStartupEnabled
+        }
+
+        if ($startupEnabled) {
+            $uiState.IsRefreshingSettings = $true
+            $startupCheckBox.IsChecked = $true
+            $uiState.IsRefreshingSettings = $false
+        }
     }.GetNewClosure())
 
     $widget.Add_MouseLeftButtonDown({ $widget.DragMove() }.GetNewClosure())
