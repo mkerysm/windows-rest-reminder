@@ -1,4 +1,4 @@
-﻿param(
+param(
     [ValidateSet("Eye", "Body", "Both")]
     [string]$Test
 )
@@ -55,6 +55,7 @@ $uiText = @{
     EyeNext = ConvertFrom-CodePoints @(36317,31163,25252,30524,25552,37266)
     BodyNext = ConvertFrom-CodePoints @(36317,31163,36523,20307,20241,24687)
     WindowTopmost = ConvertFrom-CodePoints @(31383,21475,32622,39030)
+    LockReset = ConvertFrom-CodePoints @(38145,23631,37325,32622)
     EyeIntervalLabel = ConvertFrom-CodePoints @(25252,30524,38388,38548,40,109,105,110,41)
     EyeDurationLabel = ConvertFrom-CodePoints @(25252,30524,26102,38271,40,115,101,99,41)
     BodyIntervalLabel = ConvertFrom-CodePoints @(20241,24687,38388,38548,40,109,105,110,41)
@@ -72,6 +73,7 @@ function Get-DefaultReminderSettings {
         BodyIntervalMinutes = 60
         BodyDurationMinutes = 5
         IdlePauseMinutes = 1
+        ResetBodyAfterLockMinutes = 5
     }
 }
 
@@ -81,7 +83,7 @@ function Normalize-ReminderSettings {
     $defaults = Get-DefaultReminderSettings
     $normalized = Get-DefaultReminderSettings
 
-    foreach ($name in @("EyeIntervalMinutes", "EyeDurationSeconds", "BodyIntervalMinutes", "BodyDurationMinutes", "IdlePauseMinutes")) {
+    foreach ($name in @("EyeIntervalMinutes", "EyeDurationSeconds", "BodyIntervalMinutes", "BodyDurationMinutes", "IdlePauseMinutes", "ResetBodyAfterLockMinutes")) {
         $hasValue = $false
         $rawValue = $null
 
@@ -96,7 +98,10 @@ function Normalize-ReminderSettings {
 
         if ($hasValue) {
             $value = [double]$rawValue
-            if ($value -gt 0) {
+            if ($name -eq "ResetBodyAfterLockMinutes") {
+                $normalized[$name] = [math]::Max(0, $value)
+            }
+            elseif ($value -gt 0) {
                 $normalized[$name] = $value
             }
         }
@@ -149,6 +154,10 @@ function Get-IdlePauseMilliseconds {
     return [int]([double]$global:RestReminderSettings.IdlePauseMinutes * 60000)
 }
 
+function Get-ResetBodyAfterLockTimeSpan {
+    return [TimeSpan]::FromMinutes([double]$global:RestReminderSettings.ResetBodyAfterLockMinutes)
+}
+
 $global:RestReminderSettings = Load-ReminderSettings
 
 $global:RestReminderState = @{
@@ -165,12 +174,27 @@ $global:RestReminderState = @{
     IdleResetApplied = $false
     LastActivityCheck = Get-Date
     IsManuallyPaused = $false
+    SessionInactiveSince = $null
 }
 
 function Reset-ReminderTimers {
     $now = Get-Date
     $global:RestReminderState.NextEyeReminder = $now.Add((Get-EyeIntervalTimeSpan))
     $global:RestReminderState.NextBodyReminder = $now.Add((Get-BodyIntervalTimeSpan))
+}
+
+function Reset-TimersAfterInactivePeriod {
+    param([DateTime]$ResumedAt)
+
+    $inactiveSince = $global:RestReminderState.SessionInactiveSince
+    $global:RestReminderState.NextEyeReminder = $ResumedAt.Add((Get-EyeIntervalTimeSpan))
+
+    $resetBodyAfterLock = Get-ResetBodyAfterLockTimeSpan
+    if ($inactiveSince -and $resetBodyAfterLock -gt [TimeSpan]::Zero -and (($ResumedAt - $inactiveSince) -ge $resetBodyAfterLock)) {
+        $global:RestReminderState.NextBodyReminder = $ResumedAt.Add((Get-BodyIntervalTimeSpan))
+    }
+
+    $global:RestReminderState.SessionInactiveSince = $null
 }
 
 function Reset-IdleTracking {
@@ -415,6 +439,7 @@ function Show-StatusWidget {
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
                 <TextBlock Text="$($uiText.EyeIntervalLabel)" FontFamily="Microsoft YaHei UI" FontSize="12" Foreground="#526078" Margin="0,0,8,4"/>
                 <TextBox Name="EyeIntervalTextBox" Grid.Column="1" Height="25" FontFamily="Consolas" FontSize="13" TextAlignment="Center"/>
@@ -425,8 +450,10 @@ function Show-StatusWidget {
                 <TextBlock Grid.Row="3" Text="$($uiText.BodyDurationLabel)" FontFamily="Microsoft YaHei UI" FontSize="12" Foreground="#526078" Margin="0,0,8,6"/>
                 <TextBox Name="BodyDurationTextBox" Grid.Row="3" Grid.Column="1" Height="25" FontFamily="Consolas" FontSize="13" TextAlignment="Center"/>
                 <CheckBox Name="TopmostCheckBox" Grid.Row="4" Grid.ColumnSpan="2" Content="$($uiText.WindowTopmost)"
-                          FontFamily="Microsoft YaHei UI" FontSize="13" Foreground="#526078" Margin="0,2,0,8"/>
-                <Button Name="SaveSettingsButton" Grid.Row="5" Grid.ColumnSpan="2" Content="$($uiText.SaveSettings)" Height="30"
+                          FontFamily="Microsoft YaHei UI" FontSize="13" Foreground="#526078" Margin="0,2,0,4"/>
+                <CheckBox Name="LockResetCheckBox" Grid.Row="5" Grid.ColumnSpan="2" Content="$($uiText.LockReset)"
+                          FontFamily="Microsoft YaHei UI" FontSize="13" Foreground="#526078" Margin="0,0,0,8" IsChecked="True"/>
+                <Button Name="SaveSettingsButton" Grid.Row="6" Grid.ColumnSpan="2" Content="$($uiText.SaveSettings)" Height="30"
                         FontFamily="Microsoft YaHei UI" FontSize="13" Background="#EEF2F7" BorderThickness="0"/>
             </Grid>
         </Grid>
@@ -442,6 +469,7 @@ function Show-StatusWidget {
     $statusDot = $widget.FindName("StatusDot")
     $statusText = $widget.FindName("StatusText")
     $topmostCheckBox = $widget.FindName("TopmostCheckBox")
+    $lockResetCheckBox = $widget.FindName("LockResetCheckBox")
     $toggleSettingsButton = $widget.FindName("ToggleSettingsButton")
     $settingsPanel = $widget.FindName("SettingsPanel")
     $eyeIntervalTextBox = $widget.FindName("EyeIntervalTextBox")
@@ -507,6 +535,7 @@ function Show-StatusWidget {
         $eyeDurationTextBox.Text = [string]$global:RestReminderSettings.EyeDurationSeconds
         $bodyIntervalTextBox.Text = [string]$global:RestReminderSettings.BodyIntervalMinutes
         $bodyDurationTextBox.Text = [string]$global:RestReminderSettings.BodyDurationMinutes
+        $lockResetCheckBox.IsChecked = [double]$global:RestReminderSettings.ResetBodyAfterLockMinutes -gt 0
     }.GetNewClosure()
 
     $saveSettingsButton.Add_Click({
@@ -521,6 +550,7 @@ function Show-StatusWidget {
                 $global:RestReminderSettings.EyeDurationSeconds = $eyeDuration
                 $global:RestReminderSettings.BodyIntervalMinutes = $bodyInterval
                 $global:RestReminderSettings.BodyDurationMinutes = $bodyDuration
+                $global:RestReminderSettings.ResetBodyAfterLockMinutes = if ($lockResetCheckBox.IsChecked) { 5 } else { 0 }
                 $global:RestReminderSettings = Normalize-ReminderSettings $global:RestReminderSettings
                 Save-ReminderSettings
                 Reset-ReminderTimers
@@ -576,16 +606,17 @@ $app.ShutdownMode = [Windows.ShutdownMode]::OnExplicitShutdown
     switch ($eventArgs.Reason) {
         ([Microsoft.Win32.SessionSwitchReason]::SessionLock) {
             $global:RestReminderState.IsSessionInactive = $true
+            $global:RestReminderState.SessionInactiveSince = Get-Date
             $global:RestReminderState.IsWaitingForActivity = $false
             $global:RestReminderState.PendingRestType = $null
-            Reset-ReminderTimers
             Reset-IdleTracking
         }
         ([Microsoft.Win32.SessionSwitchReason]::SessionUnlock) {
+            $now = Get-Date
             $global:RestReminderState.IsSessionInactive = $false
             $global:RestReminderState.IsWaitingForActivity = $false
             $global:RestReminderState.PendingRestType = $null
-            Reset-ReminderTimers
+            Reset-TimersAfterInactivePeriod -ResumedAt $now
             Reset-IdleTracking
         }
     }
@@ -597,16 +628,17 @@ $app.ShutdownMode = [Windows.ShutdownMode]::OnExplicitShutdown
     switch ($eventArgs.Mode) {
         ([Microsoft.Win32.PowerModes]::Suspend) {
             $global:RestReminderState.IsSessionInactive = $true
+            $global:RestReminderState.SessionInactiveSince = Get-Date
             $global:RestReminderState.IsWaitingForActivity = $false
             $global:RestReminderState.PendingRestType = $null
-            Reset-ReminderTimers
             Reset-IdleTracking
         }
         ([Microsoft.Win32.PowerModes]::Resume) {
+            $now = Get-Date
             $global:RestReminderState.IsSessionInactive = $false
             $global:RestReminderState.IsWaitingForActivity = $false
             $global:RestReminderState.PendingRestType = $null
-            Reset-ReminderTimers
+            Reset-TimersAfterInactivePeriod -ResumedAt $now
             Reset-IdleTracking
         }
     }
